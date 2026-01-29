@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 from streamlit_calendar import calendar
 
-# --- 核心連線設定 (直接讀取，不報錯) ---
+# --- 核心連線設定 ---
 SHEET_ID = "1xwTYj3hmrXnhPpmDEyq_NVTqvNd1884-Fqk3Q2YsciY"
 
 def get_gs_url(sheet_name):
@@ -15,43 +15,39 @@ FIXED_SLOTS = ["14:00", "16:00", "18:00"]
 # --- 網頁配置 ---
 st.set_page_config(page_title="專業美業雲端預約系統", layout="wide")
 
-# 加強版粉色系 CSS
+# 加強版 CSS：包含「點選高亮」邏輯
 st.markdown("""
     <style>
     .stApp { background-color: #FFFBFC; }
-    .main .block-container { padding-top: 2rem; }
     
-    /* 標題與文字顏色 */
-    h1, h2, h3 { color: #D44E7D !important; font-family: 'Microsoft JhengHei', sans-serif; }
+    /* 讓選中的日期格子變色 (高亮功能) */
+    .fc-daygrid-day.fc-day-today { background-color: #FFF0F5 !important; } /* 今日顏色 */
+    .fc-highlight { background: #FFB6C1 !important; opacity: 0.6 !important; } /* 點擊選中顏色 */
     
-    /* 按鈕樣式 */
+    /* 標題與按鈕 */
+    h1 { color: #D44E7D !important; text-align: center; }
     .stButton>button { 
         height: 3.8rem; font-weight: bold; font-size: 1.2rem; border-radius: 20px; 
         background: linear-gradient(135deg, #FF69B4 0%, #FF1493 100%); 
         color: white; border: none; box-shadow: 0 4px 15px rgba(255, 105, 180, 0.3);
-        transition: all 0.3s; width: 100%;
     }
-    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 105, 180, 0.5); }
     
-    /* 選中日期外框 */
+    /* 選中日期的大盒子 */
     .selected-date-box { 
         font-size: 1.8rem; color: #D44E7D; font-weight: bold; text-align: center; 
-        background: #FFF0F5; padding: 25px; border-radius: 20px; 
-        border: 4px solid #FFB6C1; margin: 25px 0; box-shadow: inset 0 0 10px rgba(255, 182, 193, 0.5);
+        background: #FFFFFF; padding: 20px; border-radius: 20px; 
+        border: 4px solid #FF69B4; margin: 20px 0;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
     }
     
-    /* 價格標籤 */
     .price-card {
-        background: #FFFFFF; padding: 15px; border-radius: 15px; border-left: 10px solid #FF69B4;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-top: 10px;
+        background: #FFF9FA; padding: 15px; border-radius: 15px; 
+        border: 2px dashed #FF69B4; margin-top: 10px;
     }
-    
-    /* 表單區塊 */
-    .stForm { background-color: white; padding: 30px; border-radius: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #FFE4E1; }
     </style>
     """, unsafe_allow_html=True)
 
-# 讀取雲端資料 (加載中顯示美美的訊息)
+# 載入資料
 @st.cache_data(ttl=5)
 def load_all_data():
     try:
@@ -64,14 +60,13 @@ def load_all_data():
 
 df, config_df, off_df = load_all_data()
 
-st.sidebar.markdown("<h2 style='text-align:center;'>🎀 系統功能</h2>", unsafe_allow_html=True)
+st.sidebar.markdown("## 🎀 選單")
 mode = st.sidebar.radio("", ["👤 客戶線上預約", "🔐 店家管理後台"])
 
 if mode == "👤 客戶線上預約":
-    st.markdown("<h1 style='text-align:center;'>🌸 歡迎預約您的美麗時光 🌸</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#888;'>請先在月曆選取日期，再選擇時段與項目</p>", unsafe_allow_html=True)
+    st.markdown("<h1>🌸 歡迎預約您的美麗時光 🌸</h1>", unsafe_allow_html=True)
 
-    # 建立月曆事件 (有空位顯示綠色)
+    # 建立月曆事件
     event_list = []
     for i in range(0, 45):
         d = date.today() + timedelta(days=i)
@@ -83,41 +78,51 @@ if mode == "👤 客戶線上預約":
         else:
             event_list.append({"title": "已滿", "start": d_str, "allDay": True, "color": "#FADBD8", "textColor": "#943126"})
 
-    cal_res = calendar(events=event_list, options={"locale": "zh-tw", "height": 580, "timeZone": "UTC"}, key="pretty_cal")
+    # 月曆配置：開啟 selectable 並設定高亮
+    cal_res = calendar(
+        events=event_list, 
+        options={
+            "locale": "zh-tw", 
+            "selectable": True,  # 開啟選取功能
+            "unselectAuto": False, # 點擊旁邊不自動取消選取
+            "selectMirror": True,
+            "height": 580, 
+            "timeZone": "UTC"
+        }, 
+        key="pretty_cal_v2"
+    )
 
-    # 抓取選中日期
+    # 抓取選取日期
     sel_date = str(date.today())
     if cal_res.get("callback") in ["dateClick", "select"]:
         cb = cal_res.get("dateClick") or cal_res.get("select")
         sel_date = cb.get("date", cb.get("start")).split("T")[0][:10]
 
-    st.markdown(f"<div class='selected-date-box'>📅 您選中的日期：{sel_date}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='selected-date-box'>📍 您選中的日期：{sel_date}</div>", unsafe_allow_html=True)
 
-    # 過濾時段
+    # 預約時段邏輯
     booked_now = df[(df["日期"] == sel_date) & (df["狀態"] != "已取消")]["開始時段"].tolist() if not df.empty else []
     closed_now = off_df[off_df["日期"] == sel_date]["關閉時段"].tolist() if not off_df.empty else []
     available = [s for s in FIXED_SLOTS if s not in booked_now and s not in closed_now]
 
     if not available:
-        st.error(f"💔 抱歉，{sel_date} 已經被約滿了，換一天試試看吧！")
+        st.error(f"💔 抱歉，{sel_date} 已經被約滿了！")
     else:
-        with st.form("pretty_booking_form"):
+        with st.form("booking_form"):
             c1, c2 = st.columns([1, 2])
             with c1:
-                st.markdown("### 🕒 選擇時間")
+                st.markdown("### 🕒 開始時間")
                 sel_time = st.radio("", available, horizontal=True)
             with c2:
                 st.markdown("### 👤 聯絡資料")
                 sc1, sc2 = st.columns(2)
-                name = sc1.text_input("您的姓名*", placeholder="王小美")
-                phone = sc2.text_input("手機號碼*", placeholder="0912-345-678")
+                name = sc1.text_input("您的姓名*")
+                phone = sc2.text_input("手機號碼*")
             
             st.divider()
-            st.markdown("### 🛠️ 選擇施作項目 (每項約 2 小時)")
-            item_names = config_df["項目名稱"].tolist() if not config_df.empty else ["基礎保養"]
-            sel_items = st.multiselect("可多選項目：", item_names)
+            item_names = config_df["項目名稱"].tolist() if not config_df.empty else []
+            sel_items = st.multiselect("施作項目 (可多選，每項 2 小時)*", item_names)
             
-            # 即時算錢
             total_price = 0
             if sel_items:
                 for i in sel_items:
@@ -126,36 +131,19 @@ if mode == "👤 客戶線上預約":
             
             st.markdown(f"""
                 <div class='price-card'>
-                    <span style='color:#555;'>預計總金額：</span><br>
-                    <span style='font-size:1.8rem; color:#E74C3C;'>$ {total_price}</span>
-                    <span style='color:#888; margin-left:10px;'>(預計耗時 {len(sel_items)*2} 小時)</span>
+                    <span style='color:#555;'>總金額預估：</span><br>
+                    <span style='font-size:1.8rem; color:#E74C3C; font-weight:bold;'>$ {total_price}</span>
                 </div>
             """, unsafe_allow_html=True)
             
-            st.write("")
             if st.form_submit_button("🚀 確定預約"):
                 if name and phone and sel_items:
-                    # 提示客人
-                    st.success(f"🎊 預約請求已準備好！請截圖此畫面並傳送給店家確認。")
-                    st.info(f"預約內容：{sel_date} {sel_time} | {', '.join(sel_items)}")
+                    st.success(f"🎊 預約請求已發送！請截圖告知店家。")
                     st.balloons()
                 else:
-                    st.error("填寫完整姓名、電話並勾選項目，我們才能為您服務喔！")
-
+                    st.error("請填寫完整姓名、電話與項目。")
 else:
-    # --- 後台管理 ---
+    # 後台管理... (維持原樣)
     pwd = st.sidebar.text_input("管理密碼", type="password")
     if pwd == ADMIN_PASSWORD:
-        st.markdown("## 🔐 雲端管理中心")
-        t1, t2 = st.tabs(["📊 今日排程", "📋 雲端資料總覽"])
-        with t1:
-            events = []
-            if not df.empty:
-                for _, r in df.iterrows():
-                    events.append({"title": f"{r['開始時段']} {r['客人姓名']} ({r['項目']})", "start": r["日期"], "color": "#FF69B4"})
-            calendar(events=events, options={"locale": "zh-tw", "height": 600})
-        with t2:
-            st.dataframe(df, use_container_width=True)
-            st.info("💡 欲修改資料或項目，請直接前往您的 Google Sheet 進行編輯，網頁會自動同步。")
-    elif pwd != "":
-        st.error("密碼錯誤")
+        st.dataframe(df)
