@@ -1,47 +1,73 @@
 import streamlit as st
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 from datetime import datetime, timedelta
+import urllib.parse
 
-def get_calendar_service():
-    # 讀取剛剛設定的 Secrets
-    info = st.secrets["gcp_service_account"]
-    creds = service_account.Credentials.from_service_account_info(info)
-    scoped_creds = creds.with_scopes(['https://www.googleapis.com/auth/calendar'])
-    return build('calendar', 'v3', credentials=scoped_creds)
+# 1. 基本設定
+st.set_page_config(page_title="預約通知系統", layout="centered")
 
-st.set_page_config(page_title="專業預約系統", layout="centered")
-st.markdown("<h1 style='text-align: center; color: #D44E7D;'>🌸 美業自動化預約系統 🌸</h1>", unsafe_allow_html=True)
+# 2. 粉嫩介面樣式
+st.markdown("""
+    <style>
+    .stApp { background-color: #FFFBFC; }
+    h1 { color: #D44E7D; text-align: center; }
+    .booking-card { background: white; padding: 30px; border-radius: 20px; border: 2px solid #FF69B4; }
+    .stButton>button { 
+        background: linear-gradient(135deg, #FF69B4 0%, #FF1493 100%); 
+        color: white; border-radius: 50px; height: 3.5rem; width: 100%; border: none; font-size: 1.2rem; font-weight: bold;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-with st.form("booking_form"):
-    d = st.date_input("📅 選擇預約日期")
-    t = st.radio("🕒 選擇時段", ["14:00", "16:00", "18:00"], horizontal=True)
+st.markdown("<h1>🌸 歡迎預約您的美麗時光 🌸</h1>", unsafe_allow_html=True)
+
+# 3. 預約內容填寫
+with st.container():
+    st.markdown("<div class='booking-card'>", unsafe_allow_html=True)
+    
+    d = st.date_input("📅 選擇日期")
+    t = st.selectbox("🕒 選擇時段", ["14:00", "16:00", "18:00"])
+    
+    st.divider()
+    
     name = st.text_input("客人姓名*")
     line_n = st.text_input("LINE 暱稱*")
     phone = st.text_input("手機號碼*")
-    items = st.multiselect("施作項目*", ["美甲", "美睫", "保養", "霧眉"])
+    items = st.multiselect("施作項目*", ["美甲", "美睫", "皮膚保養", "霧眉設計"])
     
-    if st.form_submit_button("🚀 確定預約 (直接存入月曆)"):
-        if name and line_n and items:
-            try:
-                service = get_calendar_service()
-                start_dt = f"{d}T{t}:00"
-                # 設為兩小時後結束
-                end_hour = int(t[:2]) + 2
-                end_dt = f"{d}T{end_hour:02}:00:00"
-                
-                event = {
-                    'summary': f'💖 預約：{name} ({line_n})',
-                    'description': f'電話：{phone}\n項目：{", ".join(items)}',
-                    'start': {'dateTime': start_dt, 'timeZone': 'Asia/Taipei'},
-                    'end': {'dateTime': end_dt, 'timeZone': 'Asia/Taipei'},
-                }
-                
-                # 寫入你的主日曆
-                service.events().insert(calendarId='karry0921jackson1128@gmail.com', body=event).execute()
-                st.success("🎉 預約成功！資料已直接存入您的 Google 日曆。")
-                st.balloons()
-            except Exception as e:
-                st.error(f"❌ 寫入失敗，請檢查日曆分享權限或 Secrets：{e}")
+    if st.button("🚀 送出預約並通知店家"):
+        if name and line_n and phone and items:
+            # 整理預約內容文字
+            msg = (
+                f"【新預約申請】\n"
+                f"📅 日期：{d}\n"
+                f"🕒 時段：{t}\n"
+                f"👤 姓名：{name}\n"
+                f"🆔 LINE：{line_n}\n"
+                f"📱 電話：{phone}\n"
+                f"🛠️ 項目：{', '.join(items)}\n"
+                f"--- \n"
+                f"請與我確認預約，謝謝！"
+            )
+            
+            # 轉換為 LINE 連結格式
+            encoded_msg = urllib.parse.quote(msg)
+            # 這裡可以換成你的 LINE ID 連結，例如 https://line.me/ti/p/你的ID
+            line_url = f"https://line.me/R/msg/text/?{encoded_msg}"
+            
+            st.success("✅ 預約資訊已準備好！")
+            st.balloons()
+            
+            # 顯示跳轉按鈕
+            st.markdown(f"""
+                <a href="{line_url}" target="_blank" style="text-decoration: none;">
+                    <div style="background-color: #00B900; color: white; padding: 15px; text-align: center; border-radius: 15px; font-weight: bold; font-size: 1.2rem;">
+                        💬 點我傳送 LINE 預約通知
+                    </div>
+                </a>
+            """, unsafe_allow_html=True)
+            st.info("💡 點擊上方綠色按鈕，將預約訊息傳送給店家，預約才算正式開始喔！")
+            
         else:
-            st.warning("請填寫所有必要欄位。")
+            st.error("❌ 請完整填寫所有欄位喔！")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
