@@ -1,0 +1,77 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# --- 網頁標題與設定 ---
+st.set_page_config(page_title="美容預約系統", layout="centered")
+
+# --- 資料讀取 (改為雲端相對路徑) ---
+DATA_FILE = "appointments.csv"
+COLS = ["日期", "時段", "客人姓名", "電話", "施作項目", "金額", "狀態", "備註"]
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        return pd.read_csv(DATA_FILE, encoding="utf-8-sig")
+    else:
+        return pd.DataFrame(columns=COLS)
+
+import os
+df = load_data()
+
+# --- 手機版介面優化 ---
+st.title("🌸 美容預約管理")
+
+# 頁籤功能：切換「新增預約」與「查看清單」
+tab1, tab2 = st.tabs(["🆕 新增預約", "📅 預約清單"])
+
+with tab1:
+    with st.form("add_form"):
+        d = st.date_input("預約日期", datetime.now())
+        t = st.selectbox("時段", [f"{h:02d}:{m:02d}" for h in range(9, 22) for m in (0, 30)])
+        n = st.text_input("客人姓名")
+        p = st.text_input("聯絡電話")
+        s = st.text_input("項目")
+        price = st.number_input("金額", min_value=0)
+        memo = st.text_area("備註")
+        
+        if st.form_submit_button("儲存預約"):
+            if n:
+                new_row = pd.DataFrame([[str(d), t, n, p, s, price, "預約中", memo]], columns=COLS)
+                df = pd.concat([df, new_row], ignore_index=True)
+                df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+                st.success(f"已記錄 {n} 的預約")
+                st.rerun()
+            else:
+                st.error("請輸入姓名")
+
+with tab2:
+    st.subheader("目前的預約")
+    search = st.text_input("🔍 搜尋姓名/電話")
+    
+    if not df.empty:
+        if search:
+            view_df = df[df["客人姓名"].str.contains(search) | df["電話"].str.contains(search)]
+        else:
+            view_df = df.sort_values(["日期", "時段"], ascending=False)
+            
+        for index, row in view_df.iterrows():
+            # 手機版建議用「卡片」形式顯示，比表格好讀
+            with st.expander(f"{row['日期']} {row['時段']} - {row['客人姓名']}"):
+                st.write(f"📞 電話: {row['電話']}")
+                st.write(f"💅 項目: {row['施作項目']}")
+                st.write(f"💰 金額: ${row['金額']}")
+                st.write(f"📌 備註: {row['備註']}")
+                st.write(f"🚩 狀態: {row['狀態']}")
+                
+                # 修改狀態按鈕
+                c1, c2 = st.columns(2)
+                if c1.button("✅ 完成", key=f"done_{index}"):
+                    df.at[index, "狀態"] = "已完成"
+                    df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+                    st.rerun()
+                if c2.button("🗑️ 刪除", key=f"del_{index}"):
+                    df = df.drop(index)
+                    df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+                    st.rerun()
+    else:
+        st.write("目前沒有預約資料")
