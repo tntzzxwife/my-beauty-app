@@ -1,78 +1,117 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
+import os
 
-# --- 網頁標題與設定 ---
-st.set_page_config(page_title="美容預約系統", layout="centered")
-
-# --- 資料讀取 (改為雲端相對路徑) ---
+# --- 基礎設定 ---
 DATA_FILE = "appointments.csv"
 COLS = ["日期", "時段", "客人姓名", "電話", "施作項目", "金額", "狀態", "備註"]
+ADMIN_PASSWORD = "666"  # 你可以改成你自己想要的後台密碼
+
+# 初始化資料
+if not os.path.exists(DATA_FILE):
+    pd.DataFrame(columns=COLS).to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
 
 def load_data():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE, encoding="utf-8-sig")
-    else:
-        return pd.DataFrame(columns=COLS)
+    return pd.read_csv(DATA_FILE, encoding="utf-8-sig").astype(str)
 
-import os
+# --- 介面開始 ---
+st.set_page_config(page_title="專業美容預約系統", layout="centered")
+
+# 使用側邊欄來切換模式
+mode = st.sidebar.radio("模式切換", ["👤 顧客預約", "🔐 店家管理"])
+
 df = load_data()
 
-# --- 手機版介面優化 ---
-st.title("🌸 美容預約管理")
+if mode == "👤 顧客預約":
+    st.header("✨ 線上預約系統")
+    st.info("歡迎預約！請選擇您想要的日期與時段。")
 
-# 頁籤功能：切換「新增預約」與「查看清單」
-tab1, tab2 = st.tabs(["🆕 新增預約", "📅 預約清單"])
-
-with tab1:
-    with st.form("add_form"):
-        d = st.date_input("預約日期", datetime.now())
-        t = st.selectbox("時段", [f"{h:02d}:{m:02d}" for h in range(9, 22) for m in (0, 30)])
-        n = st.text_input("客人姓名")
-        p = st.text_input("聯絡電話")
-        s = st.text_input("項目")
-        price = st.number_input("金額", min_value=0)
-        memo = st.text_area("備註")
+    with st.form("guest_form"):
+        selected_date = st.date_input("1. 選擇日期", min_value=date.today())
         
-        if st.form_submit_button("儲存預約"):
-            if n:
-                new_row = pd.DataFrame([[str(d), t, n, p, s, price, "預約中", memo]], columns=COLS)
-                df = pd.concat([df, new_row], ignore_index=True)
-                df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
-                st.success(f"已記錄 {n} 的預約")
-                st.rerun()
+        # --- 動態時段過濾邏輯 ---
+        all_times = [f"{h:02d}:{m:02d}" for h in range(10, 21) for m in (0, 30)]
+        # 找出該日期已被約走的時段
+        booked_times = df[(df["日期"] == str(selected_date)) & (df["狀態"] != "已取消")]["時段"].tolist()
+        # 排除已被約走的時段
+        available_times = [t for t in all_times if t not in booked_times]
+        
+        selected_time = st.selectbox("2. 選擇可用時段", available_times if available_times else ["當日已滿"])
+        
+        name = st.text_input("3. 您的姓名")
+        phone = st.text_input("4. 聯絡電話")
+        service = st.selectbox("5. 施作項目", ["美甲設計", "接睫毛", "臉部護理", "半永久紋繡", "其他諮詢"])
+        note = st.text_area("6. 其他備註 (選填)")
+        
+        if st.form_submit_button("送出預約"):
+            if selected_time == "當日已滿":
+                st.error("此日期已無空檔，請更換日期。")
+            elif not name or not phone:
+                st.warning("請填寫姓名與電話以便與您聯繫。")
             else:
-                st.error("請輸入姓名")
+                new_data = pd.DataFrame([[str(selected_date), selected_time, name, phone, service, "0", "預約中", note]], columns=COLS)
+                df = pd.concat([df, new_data], ignore_index=True)
+                df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+                st.success(f"🎉 預約成功！{selected_date} {selected_time} 見！")
+                st.balloons()
 
-with tab2:
-    st.subheader("目前的預約")
-    search = st.text_input("🔍 搜尋姓名/電話")
+else:
+    # --- 店家管理後台 ---
+    st.header("🔐 店家管理後台")
+    pwd = st.text_input("請輸入管理密碼", type="password")
     
-    if not df.empty:
-        if search:
-            view_df = df[df["客人姓名"].str.contains(search) | df["電話"].str.contains(search)]
-        else:
-            view_df = df.sort_values(["日期", "時段"], ascending=False)
-            
-        for index, row in view_df.iterrows():
-            # 手機版建議用「卡片」形式顯示，比表格好讀
-            with st.expander(f"{row['日期']} {row['時段']} - {row['客人姓名']}"):
-                st.write(f"📞 電話: {row['電話']}")
-                st.write(f"💅 項目: {row['施作項目']}")
-                st.write(f"💰 金額: ${row['金額']}")
-                st.write(f"📌 備註: {row['備註']}")
-                st.write(f"🚩 狀態: {row['狀態']}")
+    if pwd == ADMIN_PASSWORD:
+        tab1, tab2, tab3 = st.tabs(["📅 月曆檢視", "📋 預約清單", "📊 統計報表"])
+        
+        with tab1:
+            st.subheader("本月預約概覽")
+            # 整理資料給日曆看
+            df['日期_dt'] = pd.to_datetime(df['日期'])
+            cal_df = df[df["狀態"] != "已取消"].copy()
+            if not cal_df.empty:
+                # 簡單的月曆呈現：顯示每天的預約人數
+                daily_counts = cal_df.groupby('日期').size().reset_index(name='預約人數')
+                st.write("點擊下方表格可查看具體日期：")
+                st.dataframe(daily_counts, use_container_width=True)
                 
-                # 修改狀態按鈕
-                c1, c2 = st.columns(2)
-                if c1.button("✅ 完成", key=f"done_{index}"):
-                    df.at[index, "狀態"] = "已完成"
-                    df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
-                    st.rerun()
-                if c2.button("🗑️ 刪除", key=f"del_{index}"):
-                    df = df.drop(index)
-                    df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
-                    st.rerun()
-    else:
+                # 選擇日期查看當天詳情
+                view_date = st.date_input("查看特定日期的預約詳情", date.today())
+                day_detail = df[df["日期"] == str(view_date)]
+                if not day_detail.empty:
+                    st.table(day_detail[["時段", "客人姓名", "施作項目", "狀態"]])
+                else:
+                    st.write("當天暫無預約。")
 
-        st.write("目前沒有預約資料")
+        with tab2:
+            st.subheader("所有原始資料")
+            search = st.text_input("🔍 搜尋客人姓名或電話")
+            if search:
+                filtered_df = df[df["客人姓名"].str.contains(search) | df["電話"].str.contains(search)]
+            else:
+                filtered_df = df.sort_values(["日期", "時段"], ascending=False)
+            
+            st.dataframe(filtered_df, use_container_width=True)
+            
+            # 刪除與狀態更新功能
+            st.divider()
+            edit_idx = st.selectbox("選擇要操作的序號", filtered_df.index)
+            c1, c2 = st.columns(2)
+            if c1.button("✅ 標記為完成"):
+                df.at[edit_idx, "狀態"] = "已完成"
+                df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+                st.rerun()
+            if c2.button("🗑️ 刪除紀錄"):
+                df = df.drop(edit_idx)
+                df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+                st.rerun()
+
+        with tab3:
+            st.subheader("營收統計")
+            # 這裡可以計算已完成訂單的總金額
+            df["金額"] = pd.to_numeric(df["金額"], errors='coerce').fillna(0)
+            total = df[df["狀態"] == "已完成"]["金額"].sum()
+            st.metric("累計已成交金額", f"${total}")
+
+    elif pwd != "":
+        st.error("密碼錯誤，請重新輸入。")
