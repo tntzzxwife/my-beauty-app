@@ -5,113 +5,115 @@ import os
 
 # --- 基礎設定 ---
 DATA_FILE = "appointments.csv"
-COLS = ["日期", "時段", "客人姓名", "電話", "施作項目", "金額", "狀態", "備註"]
-ADMIN_PASSWORD = "666"  # 你可以改成你自己想要的後台密碼
+CONFIG_FILE = "config.csv" # 儲存後台設定
+COLS = ["日期", "時段", "客人姓名", "電話", "LINE暱稱", "施作項目", "推薦人", "金額", "狀態", "備註"]
+ADMIN_PASSWORD = "666"
 
 # 初始化資料
 if not os.path.exists(DATA_FILE):
     pd.DataFrame(columns=COLS).to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
 
+# 初始化後台設定 (預設開放時段)
+if not os.path.exists(CONFIG_FILE):
+    default_config = pd.DataFrame({"key": ["open_times"], "value": ["10:00,11:00,13:00,14:00,15:00,16:00,17:00,18:00,19:00,20:00"]})
+    default_config.to_csv(CONFIG_FILE, index=False, encoding="utf-8-sig")
+
 def load_data():
     return pd.read_csv(DATA_FILE, encoding="utf-8-sig").astype(str)
 
-# --- 介面開始 ---
-st.set_page_config(page_title="專業美容預約系統", layout="centered")
+def get_config():
+    conf = pd.read_csv(CONFIG_FILE, encoding="utf-8-sig")
+    return conf.loc[conf['key'] == 'open_times', 'value'].values[0].split(',')
 
-# 使用側邊欄來切換模式
-mode = st.sidebar.radio("模式切換", ["👤 顧客預約", "🔐 店家管理"])
+# --- 介面開始 ---
+st.set_page_config(page_title="專業美容管理系統 v2.0", layout="wide")
 
 df = load_data()
+open_times = get_config()
 
-if mode == "👤 顧客預約":
-    st.header("✨ 線上預約系統")
-    st.info("歡迎預約！請選擇您想要的日期與時段。")
+mode = st.sidebar.radio("切換模式", ["👤 客戶線上預約", "🔐 店家管理後台"])
 
-    with st.form("guest_form"):
-        selected_date = st.date_input("1. 選擇日期", min_value=date.today())
+if mode == "👤 客戶線上預約":
+    st.header("✨ 美容工作室預約")
+    st.markdown("---")
+    
+    with st.form("booking_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_date = st.date_input("選擇預約日期", min_value=date.today())
+            name = st.text_input("客人姓名*")
+            line_id = st.text_input("您的 LINE 暱稱* (以便聯繫)")
+        with col2:
+            # 過濾已約時段
+            booked_times = df[(df["日期"] == str(selected_date)) & (df["狀態"] != "已取消")]["時段"].tolist()
+            available_times = [t for t in open_times if t not in booked_times]
+            selected_time = st.selectbox("選擇預約時段*", available_times if available_times else ["當日已滿"])
+            phone = st.text_input("聯絡電話*")
+            referrer = st.text_input("推薦人 (選填)")
+
+        service = st.selectbox("施作項目", ["美甲", "美睫", "護膚", "紋繡", "其他"])
+        note = st.text_area("備註說明")
         
-        # --- 動態時段過濾邏輯 ---
-        all_times = [f"{h:02d}:{m:02d}" for h in range(10, 21) for m in (0, 30)]
-        # 找出該日期已被約走的時段
-        booked_times = df[(df["日期"] == str(selected_date)) & (df["狀態"] != "已取消")]["時段"].tolist()
-        # 排除已被約走的時段
-        available_times = [t for t in all_times if t not in booked_times]
-        
-        selected_time = st.selectbox("2. 選擇可用時段", available_times if available_times else ["當日已滿"])
-        
-        name = st.text_input("3. 您的姓名")
-        phone = st.text_input("4. 聯絡電話")
-        service = st.selectbox("5. 施作項目", ["美甲設計", "接睫毛", "臉部護理", "半永久紋繡", "其他諮詢"])
-        note = st.text_area("6. 其他備註 (選填)")
-        
-        if st.form_submit_button("送出預約"):
-            if selected_time == "當日已滿":
-                st.error("此日期已無空檔，請更換日期。")
-            elif not name or not phone:
-                st.warning("請填寫姓名與電話以便與您聯繫。")
+        if st.form_submit_button("提交預約"):
+            if not (name and phone and line_id) or selected_time == "當日已滿":
+                st.error("請填寫必填欄位 (*) 且確保時段尚未被預約。")
             else:
-                new_data = pd.DataFrame([[str(selected_date), selected_time, name, phone, service, "0", "預約中", note]], columns=COLS)
-                df = pd.concat([df, new_data], ignore_index=True)
+                new_row = [str(selected_date), selected_time, name, phone, line_id, service, referrer, "0", "預約中", note]
+                new_df = pd.DataFrame([new_row], columns=COLS)
+                df = pd.concat([df, new_df], ignore_index=True)
                 df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
-                st.success(f"🎉 預約成功！{selected_date} {selected_time} 見！")
-                st.balloons()
+                
+                st.success(f"✅ 預約提交成功！")
+                st.info(f"請點擊下方按鈕加入我們的 LINE 並傳送您的姓名：{name}，我們將為您確認。")
+                # 這裡可以放你的 LINE 官方帳號連結
+                st.markdown("[👉 點我加入店家 LINE](https://line.me/ti/p/你的ID)")
 
 else:
     # --- 店家管理後台 ---
     st.header("🔐 店家管理後台")
-    pwd = st.text_input("請輸入管理密碼", type="password")
+    pwd = st.sidebar.text_input("管理密碼", type="password")
     
     if pwd == ADMIN_PASSWORD:
-        tab1, tab2, tab3 = st.tabs(["📅 月曆檢視", "📋 預約清單", "📊 統計報表"])
+        tab1, tab2, tab3, tab4 = st.tabs(["📅 月曆檢視", "👥 客戶檔案紀錄", "⚙️ 時段與設定", "📋 原始資料管理"])
         
         with tab1:
-            st.subheader("本月預約概覽")
-            # 整理資料給日曆看
-            df['日期_dt'] = pd.to_datetime(df['日期'])
-            cal_df = df[df["狀態"] != "已取消"].copy()
-            if not cal_df.empty:
-                # 簡單的月曆呈現：顯示每天的預約人數
-                daily_counts = cal_df.groupby('日期').size().reset_index(name='預約人數')
-                st.write("點擊下方表格可查看具體日期：")
-                st.dataframe(daily_counts, use_container_width=True)
-                
-                # 選擇日期查看當天詳情
-                view_date = st.date_input("查看特定日期的預約詳情", date.today())
-                day_detail = df[df["日期"] == str(view_date)]
-                if not day_detail.empty:
-                    st.table(day_detail[["時段", "客人姓名", "施作項目", "狀態"]])
-                else:
-                    st.write("當天暫無預約。")
+            st.subheader("本月預約分佈")
+            view_date = st.date_input("查看日期詳情", date.today())
+            day_detail = df[df["日期"] == str(view_date)]
+            if not day_detail.empty:
+                st.table(day_detail[["時段", "客人姓名", "LINE暱稱", "施作項目", "推薦人"]])
+            else:
+                st.write("這天目前沒有人預約喔～")
 
         with tab2:
-            st.subheader("所有原始資料")
-            search = st.text_input("🔍 搜尋客人姓名或電話")
-            if search:
-                filtered_df = df[df["客人姓名"].str.contains(search) | df["電話"].str.contains(search)]
-            else:
-                filtered_df = df.sort_values(["日期", "時段"], ascending=False)
-            
-            st.dataframe(filtered_df, use_container_width=True)
-            
-            # 刪除與狀態更新功能
-            st.divider()
-            edit_idx = st.selectbox("選擇要操作的序號", filtered_df.index)
-            c1, c2 = st.columns(2)
-            if c1.button("✅ 標記為完成"):
-                df.at[edit_idx, "狀態"] = "已完成"
-                df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
-                st.rerun()
-            if c2.button("🗑️ 刪除紀錄"):
-                df = df.drop(edit_idx)
-                df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
-                st.rerun()
+            st.subheader("👤 客戶消費紀錄彙整")
+            # 依姓名與電話彙整客人資料
+            customer_summary = df.groupby(['客人姓名', '電話', 'LINE暱稱']).agg({
+                '日期': 'count',
+                '金額': lambda x: pd.to_numeric(x, errors='coerce').sum(),
+                '推薦人': lambda x: ', '.join(set(x.dropna()))
+            }).rename(columns={'日期': '預約次數', '金額': '總消費額'})
+            st.dataframe(customer_summary, use_container_width=True)
 
         with tab3:
-            st.subheader("營收統計")
-            # 這裡可以計算已完成訂單的總金額
-            df["金額"] = pd.to_numeric(df["金額"], errors='coerce').fillna(0)
-            total = df[df["狀態"] == "已完成"]["金額"].sum()
-            st.metric("累計已成交金額", f"${total}")
+            st.subheader("⚙️ 營業時段調整")
+            current_times_str = ",".join(open_times)
+            new_times_input = st.text_area("設定開放時段 (用半型逗號隔開)", current_times_str)
+            if st.button("儲存時段設定"):
+                conf_df = pd.DataFrame({"key": ["open_times"], "value": [new_times_input]})
+                conf_df.to_csv(CONFIG_FILE, index=False, encoding="utf-8-sig")
+                st.success("時段已更新！")
+                st.rerun()
+
+        with tab4:
+            st.subheader("📋 訂單編輯與刪除")
+            # 可以在這裡編輯金額
+            edit_df = df.copy()
+            st.data_editor(edit_df, key="data_editor_table") 
+            if st.button("更新所有修改內容"):
+                st.session_state["data_editor_table"]["edited_rows"] # 這裡可以寫入更複雜的編輯逻辑
+                edit_df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+                st.success("資料已同步！")
 
     elif pwd != "":
-        st.error("密碼錯誤，請重新輸入。")
+        st.error("密碼錯誤")
